@@ -1,6 +1,5 @@
 FROM ubuntu:24.04
 
-ENV WARP_MODE=proxy
 
 RUN apt-get update && apt-get install -y \
     curl \
@@ -14,6 +13,8 @@ RUN apt-get update && apt-get install -y \
     iptables \
     redsocks \
     dos2unix \
+    coreutils \
+    socat \
     && rm -rf /var/lib/apt/lists/*
 
 RUN curl -fsSL https://pkg.cloudflareclient.com/pubkey.gpg | gpg --yes --dearmor --output /usr/share/keyrings/cloudflare-warp-archive-keyring.gpg \

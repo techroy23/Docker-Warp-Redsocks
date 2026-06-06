@@ -1,20 +1,23 @@
 FROM alpine:latest
 
-ENV WARP_MODE=proxy
 
 RUN apk update && apk add --no-cache \
     curl \
-	gnupg \
-	lsb-release \
-	ca-certificates \
+    gnupg \
+    lsb-release \
+    ca-certificates \
     iproute2 \
-	dbus \
-	procps \
-	net-tools \
-	iptables \
+    dbus \
+    procps \
+    net-tools \
+    iptables \
     redsocks \
-	dos2unix \
-	binutils \
+    dos2unix \
+    coreutils \
+    socat \
+    && rm -rf /var/cache/apk/*
+
+RUN apk add --no-cache binutils \
     && WARP_DEB_URL=$( \
          curl -fsSL "https://pkg.cloudflareclient.com/dists/noble/main/binary-amd64/Packages.gz" \
          | gunzip | grep -m1 '^Filename: ' | awk '{print $2}' \
@@ -23,8 +26,7 @@ RUN apk update && apk add --no-cache \
     && mkdir -p /tmp/warp-extract && cd /tmp/warp-extract \
     && ar x /tmp/warp.deb && tar xf data.tar.* -C / \
     && rm -rf /tmp/warp* \
-    && apk del binutils \
-    && rm -rf /var/cache/apk/*
+    && apk del binutils
 
 WORKDIR /app
 COPY *.sh /app/

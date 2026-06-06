@@ -1,21 +1,22 @@
 # Docker-Warp-Redsocks
 
-Docker base image that runs any application behind a transparent proxy stack — Cloudflare WARP + Redsocks + iptables.
+Docker base image that routes all outbound traffic through Cloudflare WARP via a transparent proxy stack.
 
 ## Variants
 
-| Image | Base | Size |
-|-------|------|------|
-| `ghcr.io/techroy23/docker-warp-redsocks:alpine` | Alpine Linux | Lightweight |
-| `ghcr.io/techroy23/docker-warp-redsocks:ubuntu` | Ubuntu 24.04 | Heavier, official WARP deb |
+| Image | Base |
+|-------|------|
+| `ghcr.io/techroy23/docker-warp-redsocks:alpine` | Alpine Linux |
+| `ghcr.io/techroy23/docker-warp-redsocks:ubuntu` | Ubuntu 24.04 |
 
 ## How it works
 
-1. WARP client starts, exposes a SOCKS5 proxy on port `40000`
-2. Redsocks listens on port `50000`, forwarding all TCP to WARP's SOCKS5
-3. iptables `OUTPUT` chain redirects all outbound TCP traffic (except localhost, DNS, proxy ports) to Redsocks
-4. A monitor loop checks connectivity every 3 minutes, restarts the stack on 3 consecutive failures
-5. Ready signal: `/tmp/redsocks.ready` is created once the proxy is verified working
+1. Cloudflare WARP starts and binds a SOCKS5 proxy to `127.0.0.1:40000`
+2. Socat opens `0.0.0.0:40001` so external hosts can also use WARP as a SOCKS5 proxy
+3. Redsocks listens on `127.0.0.1:50000` and forwards all traffic to WARP's SOCKS5
+4. iptables `OUTPUT` chain redirects all outbound TCP (except localhost, DNS, and proxy ports) to Redsocks
+5. A monitor loop checks connectivity every 3 minutes and restarts the stack after 3 consecutive failures
+6. Ready signal: `/tmp/redsocks.ready` is created once everything is verified working
 
 ## Usage
 
@@ -23,8 +24,6 @@ Docker base image that runs any application behind a transparent proxy stack —
 
 ```dockerfile
 FROM ghcr.io/techroy23/docker-warp-redsocks:alpine
-# or
-# FROM ghcr.io/techroy23/docker-warp-redsocks:ubuntu
 
 COPY . /app
 ```
@@ -58,20 +57,10 @@ exec ./your_program
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `WARP_PORT` | `40000` | WARP SOCKS5 proxy port |
-| `REDSOCKS_PORT` | `50000` | Redsocks transparent proxy port |
-| `WARP_MODE` | `proxy` | WARP mode: `proxy`, `warp`, or `gateway` |
 | `SHOW_LOGS` | `false` | Show Redsocks logs on stderr |
 
 ```bash
-# Warp mode
-docker run -e WARP_MODE=warp yourimage
-
-# Show debug logs
 docker run -e SHOW_LOGS=true yourimage
-
-# Custom ports
-docker run -e WARP_PORT=40001 -e REDSOCKS_PORT=50001 yourimage
 ```
 
 ## Requirements

@@ -1,9 +1,6 @@
 #!/bin/bash
 set -e
 
-WARP_PORT="${WARP_PORT:-40000}"
-REDSOCKS_PORT="${REDSOCKS_PORT:-50000}"
-WARP_MODE="${WARP_MODE:-proxy}"
 SHOW_LOGS="$(echo "${SHOW_LOGS:-false}" | tr '[:upper:]' '[:lower:]')"
 
 log() {
@@ -12,68 +9,67 @@ log() {
 
 func_net_admin() {
     if ! iptables -L >/dev/null 2>&1; then
-        log "[ERROR] iptables not usable. Missing NET_ADMIN/NET_RAW or root privileges."
-        log "[INFO] Run container with: --cap-add=NET_ADMIN --cap-add=NET_RAW --sysctl net.ipv4.ip_forward=1"
+        log "[ERROR] Cannot use iptables — missing required permissions."
+        log "[INFO] Fix: add --cap-add=NET_ADMIN --cap-add=NET_RAW --sysctl net.ipv4.ip_forward=1 to your docker run command"
         exit 1
     fi
 }
 
 func_start_warp() {
-    log "[INFO] Starting Cloudflare WARP in ${WARP_MODE} mode..."
+    log "[INFO] Starting Cloudflare WARP in proxy mode..."
 
-	log "[CMD] rm -rf /var/lib/cloudflare-warp/* 2>/dev/null || true"
+    log "[STOP] Clearing old WARP data..."
     rm -rf /var/lib/cloudflare-warp/* 2>/dev/null || true
     sleep 2
 
+    log "[START] Starting message bus (dbus)..."
     mkdir -p /run/dbus
-	log "[CMD] dbus-daemon --system --fork >/dev/null 2>&1 &"
     dbus-daemon --system --fork >/dev/null 2>&1 &
     sleep 2
 
-	log "[CMD] warp-svc >/dev/null 2>&1 &"
+    log "[START] Starting WARP service..."
     warp-svc >/dev/null 2>&1 &
     sleep 2
 
-	log "[CMD] warp-cli --accept-tos registration new"
-    warp-cli --accept-tos registration new
+    log "[WARP] Registering your device with Cloudflare..."
+    warp-cli --accept-tos registration new || true
     sleep 2
 
-	log "[CMD] echo y | warp-cli --accept-tos connect"
-	echo y | warp-cli --accept-tos connect
-	sleep 2
-	
-	log "[CMD] warp-cli --accept-tos connect"
-	warp-cli --accept-tos connect
-	sleep 2
-
-	log "[CMD] warp-cli --accept-tos mode ${WARP_MODE}"
-    warp-cli --accept-tos mode ${WARP_MODE}
-	sleep 2
-	
-	log "[CMD] warp-cli --accept-tos proxy port ${WARP_PORT}"
-    warp-cli --accept-tos proxy port "${WARP_PORT}"
+    log "[WARP] Connecting (first attempt)..."
+    echo y | warp-cli --accept-tos connect || true
     sleep 2
 
-	log "[CMD] warp-cli --accept-tos status"
-    warp-cli --accept-tos status
-	sleep 5
-	
-	log "[CMD] netstat -lntup | grep 40000"
-	netstat -lntup | grep 40000
-	log "[CMD] curl -s --socks5 127.0.0.1:40000 https://www.cloudflare.com/cdn-cgi/trace | grep warp"
-	curl -s --socks5 127.0.0.1:40000 https://www.cloudflare.com/cdn-cgi/trace | grep warp
+    log "[WARP] Connecting (second attempt)..."
+    warp-cli --accept-tos connect || true
+    sleep 2
+
+    log "[WARP] Setting mode to proxy..."
+    warp-cli --accept-tos mode proxy || true
+    sleep 2
+
+    log "[WARP] Setting proxy port to 40000..."
+    warp-cli --accept-tos proxy port "40000" || true
+    sleep 2
+
+    log "[WARP] Checking connection status..."
+    warp-cli --accept-tos status || true
+    sleep 5
+
+    log "[CHECK] Verifying WARP is listening on port 40000..."
+    netstat -lntup | grep 40000
+    log "[CHECK] Testing WARP proxy through Cloudflare..."
+    curl -s --socks5 127.0.0.1:40000 https://www.cloudflare.com/cdn-cgi/trace | grep warp
 }
 
 func_check_warp() {
     while true; do
         sleep 10
-        checker=$(printf "%s\n" $CHECKERS | shuf -n1)
-        resp=$(curl -L --max-redirs 10 --socks5 127.0.0.1:${WARP_PORT} -s --max-time 30 "https://www.cloudflare.com/cdn-cgi/trace" 2>/dev/null | tr -d '\n\r' || true)
+        resp=$(curl -L --max-redirs 10 --socks5 127.0.0.1:40000 -s --max-time 30 "https://www.cloudflare.com/cdn-cgi/trace" 2>/dev/null | tr -d '\n\r' || true)
         if echo "$resp" | grep -qi "warp=on"; then
-            log "[INFO] WARP proxy is working: $resp"
+            log "[OK] WARP proxy is working! Traffic is going through Cloudflare."
             return 0
         else
-            log "[WARN] WARP proxy not ready, retrying..."
+            log "[WAIT] WARP proxy not ready yet, checking again in 10 seconds..."
         fi
     done
 }
@@ -89,34 +85,40 @@ base {
 }
 redsocks {
     local_ip = 127.0.0.1;
-    local_port = ${REDSOCKS_PORT};
+    local_port = 50000;
     ip = 127.0.0.1;
-    port = ${WARP_PORT};
+    port = 40000;
     type = socks5;
 }
 EOF
     if [ "$SHOW_LOGS" = "true" ]; then
         cat /etc/redsocks.conf
     fi
-    log "[INFO] Redsocks config written"
+    log "[OK] Redsocks configuration saved to /etc/redsocks.conf"
 }
 
 setup_iptables() {
     iptables -t nat -F
     iptables -t nat -A OUTPUT -p tcp -d 127.0.0.1 -j RETURN
     iptables -t nat -A OUTPUT -p tcp --dport 53 -j RETURN
-    iptables -t nat -A OUTPUT -p tcp --dport ${REDSOCKS_PORT} -j RETURN
-    iptables -t nat -A OUTPUT -p tcp --dport ${WARP_PORT} -j RETURN
+    iptables -t nat -A OUTPUT -p tcp --dport 50000 -j RETURN
+    iptables -t nat -A OUTPUT -p tcp --dport 40000 -j RETURN
     iptables -t nat -A OUTPUT -p udp -d 127.0.0.1 -j RETURN
     iptables -t nat -A OUTPUT -p udp --dport 53 -j RETURN
-    iptables -t nat -A OUTPUT -p udp --dport ${REDSOCKS_PORT} -j RETURN
-    iptables -t nat -A OUTPUT -p udp --dport ${WARP_PORT} -j RETURN
-    iptables -t nat -A OUTPUT -p tcp -j REDIRECT --to-ports ${REDSOCKS_PORT}
-    log "[INFO] iptables rules applied"
+    iptables -t nat -A OUTPUT -p udp --dport 50000 -j RETURN
+    iptables -t nat -A OUTPUT -p udp --dport 40000 -j RETURN
+    iptables -t nat -A OUTPUT -p tcp -j REDIRECT --to-ports 50000
+    log "[OK] iptables rules applied — all outbound traffic will go through WARP"
+}
+
+func_expose_warp() {
+    log "[EXPOSE] Opening WARP SOCKS5 on 0.0.0.0:40001 for external access..."
+    socat TCP-LISTEN:40001,fork,reuseaddr TCP:127.0.0.1:40000 &
+    log "[OK] WARP SOCKS5 now available at 0.0.0.0:40001"
 }
 
 func_set_proxy() {
-    log "[INFO] Initializing WARP + Redsocks proxy stack..."
+    log "[START] Setting up full proxy stack (WARP + Redsocks + iptables)..."
 
     pkill -f warp-svc || true
     pkill -f warp-cli || true
@@ -124,6 +126,7 @@ func_set_proxy() {
 
     func_start_warp
     func_check_warp
+    func_expose_warp
     setup_redsocks
     setup_iptables
 
@@ -138,21 +141,22 @@ func_set_proxy() {
     checker=$(printf "%s\n" $CHECKERS | shuf -n1)
     resp=$(curl -L --max-redirs 10 -s --max-time 30 "https://${checker}" || true)
     if [ -n "$resp" ]; then
-        log "[INFO] Global proxy via redsocks is working: $resp (via $checker)"
+        log "[OK] Global proxy is working! Your IP: $resp (checked via $checker)"
         touch /tmp/redsocks.ready
         return 0
     else
-        log "[ERROR] Global proxy test failed"
+        log "[FAIL] Global proxy test failed — no internet through the proxy"
         return 1
     fi
 }
 
 func_global_monitor() {
     while true; do
-        log "[INFO] Cleaning up WARP and Redsocks..."
+        log "[RESTART] Shutting down old WARP and Redsocks processes..."
         pkill -f warp-svc || true
         pkill -f warp-cli || true
         pkill -f redsocks || true
+        pkill -f socat || true
         rm -f /tmp/redsocks.ready || true
 
         func_set_proxy || { sleep 60; continue; }
@@ -163,14 +167,14 @@ func_global_monitor() {
             checker=$(printf "%s\n" $CHECKERS | shuf -n1)
             resp=$(curl -L --max-redirs 10 -s --max-time 30 "https://${checker}" 2>/dev/null | tr -d '\n\r' || true)
             if [ -n "$resp" ]; then
-                log "[GOOD] Global monitor check OK: $resp (via $checker)"
+                log "[OK] Internet check passed — your IP: $resp (via $checker)"
                 proxy_fail_count=0
             else
                 proxy_fail_count=$((proxy_fail_count+1))
-                log "[ERROR] Proxy failure detected (consecutive fails: ${proxy_fail_count})"
+                log "[WARN] Internet check failed (${proxy_fail_count}/3 failures)"
             fi
             if [ ${proxy_fail_count} -ge 3 ]; then
-                log "[CRITICAL] Proxy failed 3 times in a row, restarting full stack..."
+                log "[RESTART] 3 internet checks failed — restarting the whole proxy stack..."
                 break
             fi
         done
