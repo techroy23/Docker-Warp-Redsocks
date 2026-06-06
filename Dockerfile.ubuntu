@@ -1,0 +1,29 @@
+FROM ubuntu:24.04
+
+ENV WARP_MODE=proxy
+
+RUN apt-get update && apt-get install -y \
+    curl \
+    gnupg \
+    lsb-release \
+    ca-certificates \
+    iproute2 \
+    dbus \
+    procps \
+    net-tools \
+    iptables \
+    redsocks \
+    dos2unix \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN curl -fsSL https://pkg.cloudflareclient.com/pubkey.gpg | gpg --yes --dearmor --output /usr/share/keyrings/cloudflare-warp-archive-keyring.gpg \
+    && echo "deb [signed-by=/usr/share/keyrings/cloudflare-warp-archive-keyring.gpg] https://pkg.cloudflareclient.com/ $(lsb_release -cs) main" > /etc/apt/sources.list.d/cloudflare-client.list \
+    && apt-get update \
+    && apt-get install -y cloudflare-warp \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+COPY *.sh /app/
+RUN dos2unix /app/*.sh && chmod +x /app/*.sh
+
+ENTRYPOINT ["/bin/bash"]
