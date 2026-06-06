@@ -18,6 +18,13 @@ Docker base image that routes all outbound traffic through Cloudflare WARP via a
 5. A monitor loop checks connectivity every 3 minutes and restarts the stack after 3 consecutive failures
 6. Ready signal: `/tmp/redsocks.ready` is created once everything is verified working
 
+## Requirements
+
+- Container must run with `--cap-add=NET_ADMIN --cap-add=NET_RAW`
+- Container must run with `--sysctl net.ipv4.ip_forward=1`
+- First run: WARP registration is automatic
+- WARP Terms of Service acceptance is automatic
+
 ## Usage
 
 ### 1. Import in your Dockerfile
@@ -62,10 +69,3 @@ exec ./your_program
 ```bash
 docker run -e SHOW_LOGS=true yourimage
 ```
-
-## Requirements
-
-- `NET_ADMIN` and `NET_RAW` capabilities
-- `net.ipv4.ip_forward=1` sysctl
-- First run: WARP registration is automatic
-- WARP Terms of Service acceptance is automatic
