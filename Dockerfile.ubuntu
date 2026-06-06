@@ -27,4 +27,7 @@ WORKDIR /app
 COPY *.sh /app/
 RUN dos2unix /app/*.sh && chmod +x /app/*.sh
 
+HEALTHCHECK --interval=30s --timeout=10s --start-period=20s --retries=3 \
+  CMD curl -s --socks5 127.0.0.1:40000 https://www.cloudflare.com/cdn-cgi/trace | grep -q warp=on
+
 ENTRYPOINT ["/bin/bash"]
