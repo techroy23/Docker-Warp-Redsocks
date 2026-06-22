@@ -31,6 +31,10 @@ func_start_warp() {
     warp-svc >/dev/null 2>&1 &
     sleep 2
 
+    log "[WARP] Deleting old registration before fresh registration..."
+    warp-cli --accept-tos registration delete || true
+    sleep 2
+
     log "[WARP] Registering your device with Cloudflare..."
     warp-cli --accept-tos registration new || true
     sleep 2
@@ -62,16 +66,21 @@ func_start_warp() {
 }
 
 func_check_warp() {
-    while true; do
+    local max_attempts=18
+    local attempt=0
+    while [ $attempt -lt $max_attempts ]; do
         sleep 10
         resp=$(curl -L --max-redirs 10 --socks5 127.0.0.1:40000 -s --max-time 30 "https://www.cloudflare.com/cdn-cgi/trace" 2>/dev/null | tr -d '\n\r' || true)
         if echo "$resp" | grep -qi "warp=on"; then
             log "[OK] WARP proxy is working! Traffic is going through Cloudflare."
             return 0
         else
-            log "[WAIT] WARP proxy not ready yet, checking again in 10 seconds..."
+            attempt=$((attempt+1))
+            log "[WAIT] WARP proxy not ready yet (${attempt}/${max_attempts}), checking again in 10 seconds..."
         fi
     done
+    log "[FAIL] WARP proxy failed to start after ${max_attempts} attempts. Will restart stack."
+    return 1
 }
 
 setup_redsocks() {
@@ -125,7 +134,7 @@ func_set_proxy() {
     sleep 2
 
     func_start_warp
-    func_check_warp
+    func_check_warp || return 1
     func_expose_warp
     setup_redsocks
     setup_iptables
