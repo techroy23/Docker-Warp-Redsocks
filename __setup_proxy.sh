@@ -173,13 +173,21 @@ func_set_proxy() {
     sleep 10
 
     checker=$(printf "%s\n" $CHECKERS | shuf -n1)
-    resp=$(curl -L --max-redirs 10 -s --max-time 30 "https://${checker}" || true)
+    log "[CHECK] Global proxy test via ${checker}..."
+    resp=$(curl -L --max-redirs 10 -s --max-time 30 "https://${checker}" 2>&1 || true)
     if [ -n "$resp" ]; then
         log "[OK] Global proxy is working! Your IP: $resp (checked via $checker)"
         touch /tmp/redsocks.ready
         return 0
     else
         log "[FAIL] Global proxy test failed — no internet through the proxy"
+        log "[DEBUG] Checker: ${checker}"
+        log "[DEBUG] Curl exit code: $?"
+        # Test DNS resolution
+        checker_domain=$(echo "$checker" | cut -d/ -f1)
+        log "[DEBUG] DNS resolution test: $(host ${checker_domain} 2>&1 || nslookup ${checker_domain} 2>&1 || true)"
+        # Test direct connection to WARP proxy (should work)
+        log "[DEBUG] Direct WARP test: $(curl -s --socks5 127.0.0.1:40000 --max-time 10 'https://www.cloudflare.com/cdn-cgi/trace' 2>&1 | tr '\n' ' ' || true)"
         return 1
     fi
 }
