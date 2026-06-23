@@ -45,18 +45,24 @@ func_start_warp() {
     sleep 2
 
     log "[WARP] Registering your device with Cloudflare..."
-    warp-cli --accept-tos registration new || true
-    sleep 2
-
-    log "[WARP] Verifying registration stuck..."
-    for i in $(seq 1 10); do
-        if warp-cli --accept-tos status 2>&1 | grep -qi "Registration:.*Connected\|Registered"; then
-            log "[OK] Registration verified."
-            break
+    registration_ok=0
+    for i in $(seq 1 5); do
+        if warp-cli --accept-tos registration new >/dev/null 2>&1; then
+            sleep 2
+            if warp-cli --accept-tos registration show >/dev/null 2>&1; then
+                log "[OK] Registration verified."
+                registration_ok=1
+                break
+            fi
         fi
-        log "[WAIT] Registration not confirmed yet (${i}/10)..."
-        sleep 2
+        log "[RETRY] Registration attempt ${i}/5 failed, retrying in 3s..."
+        sleep 3
     done
+
+    if [ $registration_ok -ne 1 ]; then
+        log "[FAIL] Registration failed after 5 attempts."
+        return 1
+    fi
 
     log "[WARP] Setting mode to proxy..."
     warp-cli --accept-tos mode proxy || true
@@ -152,7 +158,7 @@ func_set_proxy() {
     pkill -f warp-cli || true
     sleep 2
 
-    func_start_warp
+    func_start_warp || return 1
     func_check_warp || return 1
     func_expose_warp
     setup_redsocks
