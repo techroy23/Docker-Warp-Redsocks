@@ -29,7 +29,16 @@ func_start_warp() {
 
     log "[START] Starting WARP service..."
     warp-svc >/dev/null 2>&1 &
-    sleep 2
+
+    log "[WARP] Waiting for WARP daemon to be ready..."
+    for i in $(seq 1 30); do
+        if warp-cli --accept-tos status >/dev/null 2>&1; then
+            log "[OK] WARP daemon is ready."
+            break
+        fi
+        log "[WAIT] WARP daemon not ready yet (${i}/30)..."
+        sleep 2
+    done
 
     log "[WARP] Deleting old registration before fresh registration..."
     warp-cli --accept-tos registration delete || true
