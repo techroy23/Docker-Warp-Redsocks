@@ -48,21 +48,31 @@ func_start_warp() {
     warp-cli --accept-tos registration new || true
     sleep 2
 
-    log "[WARP] Connecting (first attempt)..."
-    echo y | warp-cli --accept-tos connect || true
-    sleep 2
-
-    log "[WARP] Connecting (second attempt)..."
-    warp-cli --accept-tos connect || true
-    sleep 2
+    log "[WARP] Verifying registration stuck..."
+    for i in $(seq 1 10); do
+        if warp-cli --accept-tos status 2>&1 | grep -qi "Registration:.*Connected\|Registered"; then
+            log "[OK] Registration verified."
+            break
+        fi
+        log "[WAIT] Registration not confirmed yet (${i}/10)..."
+        sleep 2
+    done
 
     log "[WARP] Setting mode to proxy..."
     warp-cli --accept-tos mode proxy || true
-    sleep 2
+    sleep 3
 
     log "[WARP] Setting proxy port to 40000..."
     warp-cli --accept-tos proxy port "40000" || true
-    sleep 2
+    sleep 3
+
+    log "[WARP] Connecting (first attempt)..."
+    warp-cli --accept-tos connect || true
+    sleep 5
+
+    log "[WARP] Connecting (second attempt)..."
+    warp-cli --accept-tos connect || true
+    sleep 5
 
     log "[WARP] Checking connection status..."
     warp-cli --accept-tos status || true
